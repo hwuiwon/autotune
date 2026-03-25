@@ -20,6 +20,7 @@ ar_git_commit() {
   local metric_name="${2:-}"
   local metric_value="${3:-}"
   local metric_unit="${4:-}"
+  local workdir="${5:-.}"
 
   # Build commit message with metric trailers
   local full_message="$message"
@@ -29,8 +30,8 @@ ar_git_commit() {
 Autotune-Metric: ${metric_name}=${metric_value}${metric_unit:+ $metric_unit}"
   fi
 
-  # Stage all changes
-  git add -A 2>/dev/null || true
+  # Stage changes only within workdir
+  git add -A -- "$workdir" 2>/dev/null || true
 
   # Check if there's anything to commit
   if git diff --cached --quiet 2>/dev/null; then

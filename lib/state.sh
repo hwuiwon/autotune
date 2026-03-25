@@ -93,16 +93,41 @@ resolve_workdir() {
   local configured_dir
   configured_dir=$(config_get "$ctx_cwd" "workingDir" "")
 
-  if [[ -z "$configured_dir" ]]; then
+  if [[ -n "$configured_dir" ]]; then
+    if [[ "$configured_dir" = /* ]]; then
+      echo "$configured_dir"
+    else
+      echo "$ctx_cwd/$configured_dir"
+    fi
+    return
+  fi
+
+  # Check current dir first
+  if [[ -f "$ctx_cwd/autotune.jsonl" ]]; then
     echo "$ctx_cwd"
     return
   fi
 
-  if [[ "$configured_dir" = /* ]]; then
-    echo "$configured_dir"
-  else
-    echo "$ctx_cwd/$configured_dir"
-  fi
+  # Walk up to git root looking for state files
+  local dir
+  dir=$(cd "$ctx_cwd" && pwd)
+  local git_root
+  git_root=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || echo "")
+
+  while [[ -n "$dir" && "$dir" != "/" ]]; do
+    if [[ -f "$dir/autotune.jsonl" ]]; then
+      echo "$dir"
+      return
+    fi
+    # Stop at git root
+    if [[ "$dir" == "$git_root" ]]; then
+      break
+    fi
+    dir=$(dirname "$dir")
+  done
+
+  # Fallback to original behavior
+  echo "$ctx_cwd"
 }
 
 # --- JSONL State ---

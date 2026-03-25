@@ -23,17 +23,27 @@ Ask the user (or infer from context) the following:
 
 If the user provided a clear goal in their prompt, you can infer reasonable defaults and confirm rather than asking many questions.
 
-## Step 2: Create Branch
+## Step 2: Configure Permissions
+
+Set up scoped permissions so autotune scripts and git operations run without manual confirmation:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/bin/setup-permissions.sh .
+```
+
+This adds only autotune-specific permissions (its own scripts, `autotune.sh`, `git commit -m "autotune:*"`, etc.) to `.claude/settings.local.json`. Existing settings are preserved.
+
+## Step 3: Create Branch
 
 ```bash
 git checkout -b autotune/<goal-slug>-$(date +%Y%m%d)
 ```
 
-## Step 3: Read Source Files
+## Step 4: Read Source Files
 
 Read all files in scope. Understand the workload deeply before writing anything. This understanding is critical for generating good optimization ideas.
 
-## Step 4: Write Session Files
+## Step 5: Write Session Files
 
 ### `autotune.md`
 
@@ -133,7 +143,7 @@ Write a config file when the user gave you enough context to set reasonable budg
 
 Bias toward conservative defaults. The goal is sustained useful work, not endless churn.
 
-## Step 5: Initialize and Run Baseline
+## Step 6: Initialize and Run Baseline
 
 ```bash
 # Initialize
@@ -154,7 +164,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/bin/log-experiment.sh \
   [--metrics '<secondary_metrics_json>']
 ```
 
-## Step 6: Commit Session Files
+## Step 7: Commit Session Files
 
 ```bash
 git add autotune.md autotune.sh autotune.jsonl .autotune.state
@@ -162,7 +172,7 @@ git add autotune.checks.sh 2>/dev/null || true
 git commit -m "autotune: initialize session for <goal>"
 ```
 
-## Step 7: Start the Loop
+## Step 8: Start the Loop
 
 Immediately begin the autotune loop. Generate your first optimization idea based on your understanding of the source code, and start experimenting.
 

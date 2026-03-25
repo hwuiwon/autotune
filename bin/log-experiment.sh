@@ -212,7 +212,7 @@ PY
 GIT_RESULT=""
 if [[ "$STATUS" == "keep" ]]; then
   COMMIT_MSG="autotune: $DESCRIPTION"
-  GIT_RESULT=$(ar_git_commit "$COMMIT_MSG" "$METRIC_NAME" "$METRIC" "$METRIC_UNIT")
+  GIT_RESULT=$(ar_git_commit "$COMMIT_MSG" "$METRIC_NAME" "$METRIC" "$METRIC_UNIT" "$WORKDIR")
   NEW_COMMIT=$(GIT_RESULT_JSON="$GIT_RESULT" DEFAULT_COMMIT="$COMMIT" python3 - <<'PY'
 import json
 import os
