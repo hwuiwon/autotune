@@ -1,6 +1,6 @@
 {
   "name": "autotune",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Autonomous optimization loops for Claude Code — edit, benchmark, keep improvements, revert regressions, repeat forever",
   "author": "hwuiwon",
   "license": "MIT",
