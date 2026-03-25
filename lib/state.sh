@@ -16,32 +16,93 @@ read_config() {
   fi
 }
 
-resolve_workdir() {
-  local ctx_cwd="${1:-.}"
+config_get() {
+  local workdir="${1:-.}"
+  local path="$2"
+  local default_value="${3:-}"
   local config
-  config=$(read_config "$ctx_cwd")
+  config=$(read_config "$workdir")
+  CONFIG_JSON="$config" python3 - "$path" "$default_value" <<'PYCONF'
+import json
+import os
+import sys
 
-  local configured_dir
-  configured_dir=$(echo "$config" | python3 -c "import sys,json; c=json.load(sys.stdin); print(c.get('workingDir',''))" 2>/dev/null || echo "")
+path = sys.argv[1]
+default = sys.argv[2]
 
-  if [[ -z "$configured_dir" ]]; then
-    echo "$ctx_cwd"
-    return
-  fi
+try:
+    data = json.loads(os.environ["CONFIG_JSON"])
+except Exception:
+    print(default)
+    raise SystemExit(0)
 
-  # Resolve relative to config location
-  if [[ "$configured_dir" = /* ]]; then
-    echo "$configured_dir"
-  else
-    echo "$ctx_cwd/$configured_dir"
-  fi
+value = data
+for part in path.split("."):
+    if isinstance(value, dict) and part in value:
+        value = value[part]
+    else:
+        print(default)
+        raise SystemExit(0)
+
+if value is None:
+    print(default)
+elif isinstance(value, bool):
+    print("true" if value else "false")
+elif isinstance(value, (dict, list)):
+    print(json.dumps(value))
+else:
+    print(value)
+PYCONF
+}
+
+read_mode() {
+  local workdir="${1:-.}"
+  config_get "$workdir" "mode" "optimize"
+}
+
+read_auto_resume() {
+  local workdir="${1:-.}"
+  config_get "$workdir" "autoResume" "prompt"
 }
 
 read_max_experiments() {
   local workdir="${1:-.}"
   local config
   config=$(read_config "$workdir")
-  echo "$config" | python3 -c "import sys,json; c=json.load(sys.stdin); print(c.get('maxIterations','0'))" 2>/dev/null || echo "0"
+  CONFIG_JSON="$config" python3 - <<'PYMAX'
+import json
+import os
+
+try:
+    cfg = json.loads(os.environ["CONFIG_JSON"])
+except Exception:
+    print("0")
+    raise SystemExit(0)
+
+budget = cfg.get("budget", {}) if isinstance(cfg.get("budget", {}), dict) else {}
+value = budget.get("maxIterations", cfg.get("maxIterations", 0))
+try:
+    print(int(value or 0))
+except Exception:
+    print("0")
+PYMAX
+}
+
+resolve_workdir() {
+  local ctx_cwd="${1:-.}"
+  local configured_dir
+  configured_dir=$(config_get "$ctx_cwd" "workingDir" "")
+
+  if [[ -z "$configured_dir" ]]; then
+    echo "$ctx_cwd"
+    return
+  fi
+
+  if [[ "$configured_dir" = /* ]]; then
+    echo "$configured_dir"
+  else
+    echo "$ctx_cwd/$configured_dir"
+  fi
 }
 
 # --- JSONL State ---
@@ -59,143 +120,225 @@ get_current_segment() {
     echo "0"
     return
   fi
-  # Count config header lines (type: "config")
-  python3 -c "
-import json, sys
+  python3 - "$jsonl_path" <<'PYSEG' 2>/dev/null || echo "0"
+import json
+import sys
+
+path = sys.argv[1]
 count = 0
-for line in open('$jsonl_path'):
+for line in open(path):
     line = line.strip()
     if not line:
         continue
     try:
         obj = json.loads(line)
-        if obj.get('type') == 'config':
+        if obj.get("type") == "config":
             count += 1
-    except:
+    except Exception:
         pass
 print(count)
-" 2>/dev/null || echo "0"
+PYSEG
 }
 
 get_baseline() {
   local jsonl_path="$1"
   local segment="$2"
-  python3 -c "
-import json, sys
+  python3 - "$jsonl_path" "$segment" <<'PYBASE' 2>/dev/null || echo ""
+import json
+import sys
 
-segment = int('$segment')
+path = sys.argv[1]
+segment = int(sys.argv[2])
 current_seg = 0
 baseline = None
-
-for line in open('$jsonl_path'):
+for line in open(path):
     line = line.strip()
     if not line:
         continue
     try:
         obj = json.loads(line)
-        if obj.get('type') == 'config':
-            current_seg += 1
-            continue
-        if current_seg == segment and obj.get('type') == 'result':
-            baseline = obj.get('metric')
-            break
-    except:
-        pass
-
-if baseline is not None:
-    print(baseline)
-else:
-    print('')
-" 2>/dev/null || echo ""
+    except Exception:
+        continue
+    if obj.get("type") == "config":
+        current_seg += 1
+        continue
+    if current_seg == segment and obj.get("type") == "result":
+        baseline = obj.get("metric")
+        break
+print("" if baseline is None else baseline)
+PYBASE
 }
 
 count_experiments() {
   local jsonl_path="$1"
   local segment="${2:-}"
-  python3 -c "
-import json, sys
+  python3 - "$jsonl_path" "$segment" <<'PYCOUNT' 2>/dev/null || echo "0"
+import json
+import sys
 
-target_segment = '${segment}' if '${segment}' else None
+path = sys.argv[1]
+target_segment = sys.argv[2] if len(sys.argv) > 2 else ""
+target_segment = int(target_segment) if target_segment else None
 current_seg = 0
 count = 0
-
-if target_segment:
-    target_segment = int(target_segment)
-
-for line in open('$jsonl_path'):
+for line in open(path):
     line = line.strip()
     if not line:
         continue
     try:
         obj = json.loads(line)
-        if obj.get('type') == 'config':
-            current_seg += 1
-            continue
-        if obj.get('type') == 'result':
-            if target_segment is None or current_seg == target_segment:
-                count += 1
-    except:
-        pass
-
+    except Exception:
+        continue
+    if obj.get("type") == "config":
+        current_seg += 1
+        continue
+    if obj.get("type") == "result":
+        if target_segment is None or current_seg == target_segment:
+            count += 1
 print(count)
-" 2>/dev/null || echo "0"
+PYCOUNT
 }
 
 get_results_in_segment() {
-  # Output all results in the current segment as JSON array
   local jsonl_path="$1"
   local segment="$2"
-  python3 -c "
-import json, sys
+  python3 - "$jsonl_path" "$segment" <<'PYRESULTS' 2>/dev/null || echo "[]"
+import json
+import sys
 
-segment = int('$segment')
+path = sys.argv[1]
+segment = int(sys.argv[2])
 current_seg = 0
 results = []
-
-for line in open('$jsonl_path'):
+for line in open(path):
     line = line.strip()
     if not line:
         continue
     try:
         obj = json.loads(line)
-        if obj.get('type') == 'config':
-            current_seg += 1
-            continue
-        if current_seg == segment and obj.get('type') == 'result':
-            results.append(obj)
-    except:
-        pass
-
+    except Exception:
+        continue
+    if obj.get("type") == "config":
+        current_seg += 1
+        continue
+    if current_seg == segment and obj.get("type") == "result":
+        results.append(obj)
 print(json.dumps(results))
-" 2>/dev/null || echo "[]"
+PYRESULTS
 }
 
 get_config_for_segment() {
   local jsonl_path="$1"
   local segment="$2"
-  python3 -c "
-import json, sys
+  python3 - "$jsonl_path" "$segment" <<'PYCFG' 2>/dev/null || echo "{}"
+import json
+import sys
 
-segment = int('$segment')
+path = sys.argv[1]
+segment = int(sys.argv[2])
 current_seg = 0
 config = {}
-
-for line in open('$jsonl_path'):
+for line in open(path):
     line = line.strip()
     if not line:
         continue
     try:
         obj = json.loads(line)
-        if obj.get('type') == 'config':
-            current_seg += 1
-            if current_seg == segment:
-                config = obj
-                break
-    except:
-        pass
-
+    except Exception:
+        continue
+    if obj.get("type") == "config":
+        current_seg += 1
+        if current_seg == segment:
+            config = obj
+            break
 print(json.dumps(config))
-" 2>/dev/null || echo "{}"
+PYCFG
+}
+
+segment_summary_json() {
+  local jsonl_path="$1"
+  local segment="$2"
+  local direction="$3"
+  python3 - "$jsonl_path" "$segment" "$direction" <<'PYSUM' 2>/dev/null || echo "{}"
+import json
+import sys
+
+path = sys.argv[1]
+segment = int(sys.argv[2])
+direction = sys.argv[3]
+current_seg = 0
+results = []
+
+for line in open(path):
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        obj = json.loads(line)
+    except Exception:
+        continue
+    if obj.get("type") == "config":
+        current_seg += 1
+        continue
+    if current_seg == segment and obj.get("type") == "result":
+        results.append(obj)
+
+baseline = results[0].get("metric") if results else None
+best_kept = None
+no_improvement_streak = 0
+crash_streak = 0
+keep_streak = 0
+last_status = None
+last_metric = None
+last_commit = None
+last_description = None
+
+for result in results:
+    status = result.get("status")
+    metric = result.get("metric")
+    last_status = status
+    last_metric = metric
+    last_commit = result.get("commit")
+    last_description = result.get("description")
+
+    if status == "keep":
+        improved = best_kept is None
+        if best_kept is not None:
+            if direction == "higher":
+                improved = metric > best_kept
+            else:
+                improved = metric < best_kept
+        if improved:
+            best_kept = metric
+        no_improvement_streak = 0
+        crash_streak = 0
+        keep_streak += 1
+    elif status == "discard":
+        no_improvement_streak += 1
+        crash_streak = 0
+        keep_streak = 0
+    elif status in ("crash", "checks_failed"):
+        no_improvement_streak += 1
+        crash_streak += 1
+        keep_streak = 0
+    else:
+        keep_streak = 0
+        crash_streak = 0
+
+summary = {
+    "total_results": len(results),
+    "baseline": baseline,
+    "best_kept_metric": best_kept,
+    "last_status": last_status,
+    "last_metric": last_metric,
+    "last_commit": last_commit,
+    "last_description": last_description,
+    "no_improvement_streak": no_improvement_streak,
+    "crash_streak": crash_streak,
+    "keep_streak": keep_streak,
+}
+print(json.dumps(summary))
+PYSUM
 }
 
 # --- Runtime State (.autotune.state) ---
@@ -232,31 +375,66 @@ update_state_field() {
   state_path=$(get_state_path "$workdir")
   local current
   current=$(read_state "$workdir")
-  echo "$current" | python3 -c "
-import json, sys
-state = json.load(sys.stdin)
-field = '$field'
-value = '$value'
-# Try to parse value as JSON (for numbers, booleans)
+  STATE_JSON="$current" python3 - "$field" "$value" <<'PYSTATE' > "$state_path"
+import json
+import os
+import sys
+
+state = json.loads(os.environ["STATE_JSON"])
+field = sys.argv[1]
+value = sys.argv[2]
 try:
     value = json.loads(value)
-except:
+except Exception:
     pass
 state[field] = value
 print(json.dumps(state, indent=2))
-" > "$state_path"
+PYSTATE
+}
+
+set_state_fields() {
+  local workdir="${1:-.}"
+  local patch_json="$2"
+  local state_path
+  state_path=$(get_state_path "$workdir")
+  local current
+  current=$(read_state "$workdir")
+  STATE_JSON="$current" python3 - "$patch_json" <<'PYMERGE' > "$state_path"
+import json
+import os
+import sys
+
+state = json.loads(os.environ["STATE_JSON"])
+patch = json.loads(sys.argv[1])
+state.update(patch)
+print(json.dumps(state, indent=2))
+PYMERGE
 }
 
 init_state() {
   local workdir="${1:-.}"
   local state_path
   state_path=$(get_state_path "$workdir")
-  cat > "$state_path" << 'STATEEOF'
+  local mode
+  mode=$(read_mode "$workdir")
+  cat > "$state_path" <<STATEEOF
 {
   "autotune_mode": true,
+  "operating_mode": "${mode}",
+  "health_state": "running",
+  "failure_class": null,
+  "last_decision_reason": null,
+  "last_recovery_action": null,
+  "healing_attempts": 0,
+  "consecutive_no_improvement": 0,
+  "consecutive_failures": 0,
+  "crash_streak": 0,
+  "keep_streak": 0,
   "experiments_this_session": 0,
   "resume_count": 0,
-  "last_resume_time": 0
+  "last_resume_time": 0,
+  "last_experiment_at": null,
+  "last_meaningful_progress_at": null
 }
 STATEEOF
 }
@@ -266,7 +444,13 @@ is_autotune_active() {
   local state
   state=$(read_state "$workdir")
   local mode
-  mode=$(echo "$state" | python3 -c "import json,sys; print(json.load(sys.stdin).get('autotune_mode', False))" 2>/dev/null || echo "False")
+  mode=$(STATE_JSON="$state" python3 - <<'PYACTIVE' 2>/dev/null || echo "False"
+import json
+import os
+
+print(json.loads(os.environ["STATE_JSON"]).get("autotune_mode", False))
+PYACTIVE
+)
   [[ "$mode" == "True" || "$mode" == "true" ]]
 }
 

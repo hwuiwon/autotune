@@ -1,11 +1,11 @@
 ---
 name: autotune
-description: Set up and run an autonomous experiment loop to optimize any metric
+description: Set up and run a health-aware experiment loop to optimize any metric
 ---
 
 # Autotune Setup Skill
 
-You are setting up an autotune session — an autonomous optimization loop that will edit code, benchmark, keep improvements, and revert regressions forever.
+You are setting up an autotune session: a health-aware optimization loop that edits code, benchmarks changes, keeps improvements, repairs failures, and pauses with a reason when recovery is exhausted.
 
 ## Step 1: Gather Information
 
@@ -19,6 +19,7 @@ Ask the user (or infer from context) the following:
    - Direction: `lower` or `higher` is better?
 4. **Files in scope**: Which files/directories can be modified?
 5. **Constraints**: Any correctness requirements? (e.g., "tests must still pass", "types must check")
+6. **Recovery preference**: When the loop gets stuck, should it pause quickly or spend more time healing?
 
 If the user provided a clear goal in their prompt, you can infer reasonable defaults and confirm rather than asking many questions.
 
@@ -110,6 +111,28 @@ pnpm lint
 
 Make it executable: `chmod +x autotune.checks.sh`
 
+### `autotune.config.json` (recommended)
+
+Write a config file when the user gave you enough context to set reasonable budgets:
+
+```json
+{
+  "autoResume": "prompt",
+  "mode": "optimize",
+  "health": {
+    "maxNoImprovementRuns": 5,
+    "maxCrashStreak": 2
+  },
+  "recovery": {
+    "playbooks": ["rebaseline", "shrink_scope", "diagnose", "pause"],
+    "maxHealingAttempts": 3,
+    "pauseOnExhaustedRecovery": true
+  }
+}
+```
+
+Bias toward conservative defaults. The goal is sustained useful work, not endless churn.
+
 ## Step 5: Initialize and Run Baseline
 
 ```bash
@@ -143,7 +166,7 @@ git commit -m "autotune: initialize session for <goal>"
 
 Immediately begin the autotune loop. Generate your first optimization idea based on your understanding of the source code, and start experimenting.
 
-**LOOP FOREVER. Never ask "should I continue?".**
+Stay autonomous through normal failures, but respect health state and recovery budgets.
 
 The loop:
 1. Think about what to try (based on code understanding, past results, ideas backlog)
@@ -151,7 +174,10 @@ The loop:
 3. Run: `bash ${CLAUDE_PLUGIN_ROOT}/bin/run-experiment.sh --command "./autotune.sh"`
 4. Evaluate: improved → keep, same/worse → discard, crashed → crash
 5. Log: `bash ${CLAUDE_PLUGIN_ROOT}/bin/log-experiment.sh --metric <value> --status <status> --description "<what you tried>"`
-6. Update autotune.md every 3-5 experiments
-7. GOTO 1
+6. Read the returned `health_state`, `decision_reason`, and `next_mode`
+7. If the loop moves into repair mode, switch from broad optimization to diagnosis and scope reduction
+8. If the loop pauses, stop autonomous edits and summarize the blocker for the user
+9. Update autotune.md every 3-5 experiments
+10. GOTO 1
 
-**NEVER STOP.** The user may be away for hours.
+Use `autotune explain` whenever you need a compact summary of the current state and recommended next action.

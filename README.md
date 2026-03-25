@@ -2,7 +2,7 @@
 
 Autonomous optimization loops for [Claude Code](https://code.claude.com/docs/en/overview). Inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch).
 
-**Try an idea, measure it, keep what works, discard what doesn't, repeat forever.**
+**Try an idea, measure it, keep what works, repair what breaks, and pause with a reason when the loop gets stuck.**
 
 Works for any optimization target: test speed, bundle size, LLM training loss, build times, Lighthouse scores, inference latency — anything with a number you want to move.
 
@@ -12,10 +12,10 @@ Works for any optimization target: test speed, bundle size, LLM training loss, b
 ┌─────────────────────────────────────────────────┐
 │                 Autotune Loop                │
 │                                                  │
-│   Edit code ──► Benchmark ──► Keep or Revert    │
-│       ▲                            │             │
-│       └────────────────────────────┘             │
-│                   forever                        │
+│ Edit code ─► Benchmark ─► Keep / Revert / Heal  │
+│      ▲                           │               │
+│      └──── Explain state ◄───────┘               │
+│         until budget or pause                    │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -24,17 +24,19 @@ The Claude Code agent autonomously:
 1. Analyzes the codebase and picks an optimization to try
 2. Makes a focused code change
 3. Runs the benchmark (`autotune.sh`)
-4. Compares against baseline — improved? **keep** (auto-commit). Worse? **discard** (auto-revert)
-5. Logs everything to `autotune.jsonl`
-6. Repeats forever until interrupted
+4. Compares against baseline and guardrails: improved? **keep** (auto-commit). Worse? **discard** (auto-revert)
+5. Tracks loop health: improving, plateaued, crashing, healing, paused
+6. Applies recovery playbooks with bounded retries, then pauses with an explicit reason if recovery is exhausted
+7. Logs experiments, recovery actions, and decisions to `autotune.jsonl`
 
 ## What's Included
 
 **Infrastructure** (domain-agnostic):
 - `init-experiment.sh` — Initialize a session with metric name, unit, direction
 - `run-experiment.sh` — Run benchmark, parse `METRIC name=value` lines, run correctness checks
-- `log-experiment.sh` — Log results, auto-commit/revert, compute confidence scores
-- `dashboard.sh` — Terminal dashboard with live monitoring
+- `log-experiment.sh` — Log results, auto-commit/revert, compute confidence scores, classify health
+- `dashboard.sh` — Terminal dashboard with live monitoring and health state
+- `lib/health.py` — Recovery controller and explainable health transitions
 - Hooks for auto-resume and benchmark enforcement
 
 **Agent** (the brain):
@@ -87,6 +89,12 @@ bash "${CLAUDE_PLUGIN_ROOT:-/path/to/autotune}/bin/dashboard.sh" --watch
 # Stop the loop (preserves all data)
 autotune stop
 
+# Explain the current state and next action
+autotune explain
+
+# Force the loop into repair mode
+autotune repair
+
 # Resume later
 claude --agent autotune
 
@@ -100,6 +108,7 @@ Two files keep the session alive across restarts and context resets:
 
 - **`autotune.jsonl`** — Append-only log of every experiment (metric, status, commit, description, ASI)
 - **`autotune.md`** — Living document: objective, what's been tried, dead ends, key wins
+- **`.autotune.state`** — Current operating mode, health state, streaks, and recovery budget
 
 A fresh agent with no memory can read these two files and continue exactly where the previous session left off.
 
@@ -116,6 +125,25 @@ confidence = |best_improvement| / MAD
 | >= 2.0 | High (green) | Improvement is likely real |
 | 1.0-2.0 | Marginal (yellow) | Could be noise — consider re-running |
 | < 1.0 | Within noise (red) | Improvement may not be real |
+
+## Health And Recovery
+
+Autotune is not a blind infinite loop anymore. It tracks loop health and switches strategies when the run stops being productive.
+
+Health states:
+- `running` / `improving` — normal optimization mode
+- `plateaued` — repeated non-improving runs
+- `crashing` — benchmark or checks failures are stacking up
+- `healing` — a recovery playbook is active
+- `paused` — recovery budget is exhausted and the loop stopped safely
+
+Recovery playbooks are configured in priority order and can include:
+- `rebaseline`
+- `shrink_scope`
+- `diagnose`
+- `pause`
+
+Use `autotune explain` to see the current health state, last decision reason, and suggested next action.
 
 ## Backpressure Checks
 
@@ -174,7 +202,17 @@ Configure in `autotune.config.json`:
 {
   "workingDir": "./packages/core",
   "maxIterations": 50,
-  "autoResume": "prompt"
+  "autoResume": "prompt",
+  "mode": "optimize",
+  "health": {
+    "maxNoImprovementRuns": 5,
+    "maxCrashStreak": 2
+  },
+  "recovery": {
+    "playbooks": ["rebaseline", "shrink_scope", "diagnose", "pause"],
+    "maxHealingAttempts": 3,
+    "pauseOnExhaustedRecovery": true
+  }
 }
 ```
 
@@ -183,6 +221,12 @@ Configure in `autotune.config.json`:
 | `workingDir` | Override working directory | Current directory |
 | `maxIterations` | Cap experiments per segment | Unlimited |
 | `autoResume` | Resume mode: `prompt`, `headless`, `off` | `prompt` |
+| `mode` | Initial operating mode: `optimize` or `repair` | `optimize` |
+| `health.maxNoImprovementRuns` | Plateau threshold before healing | `5` |
+| `health.maxCrashStreak` | Consecutive failures before healing | `2` |
+| `recovery.playbooks` | Ordered recovery actions | `["rebaseline","shrink_scope","diagnose","pause"]` |
+| `recovery.maxHealingAttempts` | Recovery budget before pause | `3` |
+| `recovery.pauseOnExhaustedRecovery` | Stop instead of thrashing forever | `true` |
 
 ## CLI Reference
 
@@ -194,6 +238,8 @@ Commands:
   stop                  Turn off autotune mode (preserves log)
   clear                 Delete session data and reset
   dashboard [--watch]   Live dashboard (--full for all experiments)
+  explain               Show health state, blockers, and next action
+  repair                Switch the loop into repair mode
   status                Show current state
   version               Show version
 ```
@@ -215,6 +261,7 @@ autotune/
 │   └── dashboard.sh           # Terminal dashboard
 ├── lib/
 │   ├── state.sh               # Shared functions
+│   ├── health.py              # Health controller + explain output
 │   ├── parse-metrics.sh       # METRIC line parser
 │   ├── git-ops.sh             # Auto-commit/revert
 │   └── confidence.py          # MAD-based confidence

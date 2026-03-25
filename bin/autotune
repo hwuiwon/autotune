@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
 # bin/autotune — Main CLI entry point for autotune
-#
-# Usage:
-#   autotune start [goal]     Launch autotune agent
-#   autotune stop             Turn off autotune mode
-#   autotune clear            Delete session data and reset
-#   autotune dashboard        Show experiment dashboard
-#   autotune status           Show current state
 
 set -euo pipefail
 
@@ -28,22 +21,21 @@ Commands:
   clear                 Delete autotune.jsonl and reset state
   dashboard [--watch]   Show experiment dashboard (--watch for live, --full for all)
   status                Show current autotune state
+  explain               Explain current health, blockers, and next action
+  repair                Resume in repair mode after repeated failures
   version               Show version
 
 Examples:
   autotune start "optimize test speed"
   autotune dashboard --watch
-  autotune stop
+  autotune explain
+  autotune repair
 EOF
 }
 
 cmd_start() {
   local goal="${1:-}"
-  local workdir
-  workdir=$(resolve_workdir ".")
-
   echo "Starting autotune agent..."
-
   if [[ -n "$goal" ]]; then
     claude --agent autotune -p "Set up autotune for: $goal"
   else
@@ -54,9 +46,9 @@ cmd_start() {
 cmd_stop() {
   local workdir
   workdir=$(resolve_workdir ".")
-
   if is_autotune_active "$workdir"; then
     update_state_field "$workdir" "autotune_mode" "false"
+    update_state_field "$workdir" "health_state" '"paused"'
     echo "Autotune mode disabled. Session data preserved."
     echo "Resume with: autotune start"
   else
@@ -71,14 +63,12 @@ cmd_clear() {
   jsonl_path=$(get_jsonl_path "$workdir")
   local state_path
   state_path=$(get_state_path "$workdir")
-
   echo -n "This will delete autotune.jsonl and .autotune.state. Continue? [y/N] "
   read -r confirm
   if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
     echo "Cancelled."
     return
   fi
-
   rm -f "$jsonl_path" "$state_path"
   echo "Session data cleared."
 }
@@ -102,21 +92,54 @@ cmd_status() {
     local state
     state=$(cat "$state_path")
     local mode
-    mode=$(echo "$state" | python3 -c "import json,sys; print(json.load(sys.stdin).get('autotune_mode', False))" 2>/dev/null)
-    local exp_count
-    exp_count=$(echo "$state" | python3 -c "import json,sys; print(json.load(sys.stdin).get('experiments_this_session', 0))" 2>/dev/null)
-    local resumes
-    resumes=$(echo "$state" | python3 -c "import json,sys; print(json.load(sys.stdin).get('resume_count', 0))" 2>/dev/null)
+    mode=$(STATE_JSON="$state" python3 - <<'PY'
+import json
+import os
 
+print(json.loads(os.environ["STATE_JSON"]).get("autotune_mode", False))
+PY
+)
+    local op_mode
+    op_mode=$(STATE_JSON="$state" python3 - <<'PY'
+import json
+import os
+
+print(json.loads(os.environ["STATE_JSON"]).get("operating_mode", "optimize"))
+PY
+)
+    local health
+    health=$(STATE_JSON="$state" python3 - <<'PY'
+import json
+import os
+
+print(json.loads(os.environ["STATE_JSON"]).get("health_state", "running"))
+PY
+)
+    local failures
+    failures=$(STATE_JSON="$state" python3 - <<'PY'
+import json
+import os
+
+print(json.loads(os.environ["STATE_JSON"]).get("crash_streak", 0))
+PY
+)
+    local no_improvement
+    no_improvement=$(STATE_JSON="$state" python3 - <<'PY'
+import json
+import os
+
+print(json.loads(os.environ["STATE_JSON"]).get("consecutive_no_improvement", 0))
+PY
+)
     echo "Mode:       $([ "$mode" = "True" ] && echo "ACTIVE" || echo "inactive")"
-    echo "Experiments: $exp_count (this session)"
-    echo "Resumes:     $resumes"
+    echo "Strategy:   $op_mode"
+    echo "Health:     $health"
+    echo "Failures:   $failures crash streak / $no_improvement no-improvement"
   else
     echo "Mode:       not initialized"
   fi
 
   echo ""
-
   if [[ -f "$jsonl_path" ]]; then
     local segment
     segment=$(get_current_segment "$jsonl_path")
@@ -128,19 +151,63 @@ cmd_status() {
   else
     echo "JSONL:      (no session file)"
   fi
-
-  if [[ -f "$workdir/autotune.md" ]]; then
-    echo "Session:    autotune.md exists"
-  fi
-  if [[ -f "$workdir/autotune.sh" ]]; then
-    echo "Benchmark:  autotune.sh exists"
-  fi
-  if [[ -f "$workdir/autotune.checks.sh" ]]; then
-    echo "Checks:     autotune.checks.sh exists"
-  fi
 }
 
-# --- Main ---
+cmd_explain() {
+  local workdir
+  workdir=$(resolve_workdir ".")
+  local jsonl_path
+  jsonl_path=$(get_jsonl_path "$workdir")
+  local state_json
+  state_json=$(read_state "$workdir")
+  if [[ ! -f "$jsonl_path" ]]; then
+    echo '{"error": "No session found."}'
+    return 1
+  fi
+  local segment
+  segment=$(get_current_segment "$jsonl_path")
+  local config
+  config=$(get_config_for_segment "$jsonl_path" "$segment")
+  local direction
+  direction=$(CONFIG_JSON="$config" python3 - <<'PY'
+import json
+import os
+
+print(json.loads(os.environ["CONFIG_JSON"]).get("direction", "lower"))
+PY
+)
+  local summary
+  summary=$(segment_summary_json "$jsonl_path" "$segment" "$direction")
+  python3 "$AUTOTUNE_HOME/lib/health.py" --explain --summary "$summary" --state "$state_json" --config "$config" | python3 - <<'PY'
+import json
+import sys
+
+payload = json.load(sys.stdin)
+print(f"Health:    {payload.get('health_state')}")
+print(f"Mode:      {payload.get('operating_mode')}")
+print(f"Failure:   {payload.get('failure_class') or 'none'}")
+print(f"Action:    {payload.get('suggested_next_action')}")
+print(f"Reason:    {payload.get('last_decision_reason') or 'n/a'}")
+print(f"Baseline:  {payload.get('baseline')}")
+print(f"Best:      {payload.get('best_kept_metric')}")
+print(f"Last:      {payload.get('last_metric')} ({payload.get('last_status')})")
+print(
+    f"Streaks:   crash={payload.get('crash_streak')} "
+    f"no_improve={payload.get('no_improvement_streak')} "
+    f"keep={payload.get('keep_streak')}"
+)
+PY
+}
+
+cmd_repair() {
+  local workdir
+  workdir=$(resolve_workdir ".")
+  local patch
+  patch='{"autotune_mode": true, "operating_mode": "repair", "health_state": "healing", "last_recovery_action": "manual_repair", "last_decision_reason": "operator requested repair mode"}'
+  set_state_fields "$workdir" "$patch"
+  echo "Autotune set to repair mode. Resume with: claude --agent autotune"
+}
+
 COMMAND="${1:-}"
 shift || true
 
@@ -150,6 +217,8 @@ case "$COMMAND" in
   clear) cmd_clear ;;
   dashboard) cmd_dashboard "$@" ;;
   status) cmd_status ;;
+  explain) cmd_explain ;;
+  repair) cmd_repair ;;
   version|--version|-v) echo "autotune v${VERSION}" ;;
   help|--help|-h|"") usage ;;
   *) echo "Unknown command: $COMMAND"; usage; exit 1 ;;

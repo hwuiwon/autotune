@@ -12,7 +12,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AUTOTUNE_HOME="${CLAUDE_PLUGIN_ROOT:-${AUTOTUNE_HOME:-$(dirname "$SCRIPT_DIR")}}"
 source "$AUTOTUNE_HOME/lib/state.sh"
 
-# --- Parse args ---
 NAME=""
 METRIC_NAME=""
 METRIC_UNIT=""
@@ -28,7 +27,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# --- Validate ---
 if [[ -z "$NAME" || -z "$METRIC_NAME" || -z "$DIRECTION" ]]; then
   echo '{"error": "Required: --name, --metric, --direction"}'
   exit 1
@@ -39,15 +37,13 @@ if [[ "$DIRECTION" != "lower" && "$DIRECTION" != "higher" ]]; then
   exit 1
 fi
 
-# --- Resolve working directory ---
 WORKDIR=$(resolve_workdir ".")
 JSONL_PATH=$(get_jsonl_path "$WORKDIR")
 MAX_EXPERIMENTS=$(read_max_experiments "$WORKDIR")
+MODE=$(read_mode "$WORKDIR")
 
-# --- Determine segment ---
 SEGMENT=1
 REINIT=false
-
 if [[ -f "$JSONL_PATH" ]]; then
   EXISTING_SEGMENT=$(get_current_segment "$JSONL_PATH")
   EXISTING_COUNT=$(count_experiments "$JSONL_PATH" "$EXISTING_SEGMENT")
@@ -59,40 +55,55 @@ if [[ -f "$JSONL_PATH" ]]; then
   fi
 fi
 
-# --- Write config header to JSONL ---
-CONFIG_LINE=$(python3 -c "
+CONFIG_FILE_JSON=$(read_config "$WORKDIR")
+CONFIG_FILE_JSON="$CONFIG_FILE_JSON" python3 - <<PYCFG >> "$JSONL_PATH"
 import json
+import os
+
+file_cfg = json.loads(os.environ["CONFIG_FILE_JSON"])
 config = {
-    'type': 'config',
-    'name': $(python3 -c "import json; print(json.dumps('$NAME'))"),
-    'metric_name': $(python3 -c "import json; print(json.dumps('$METRIC_NAME'))"),
-    'metric_unit': $(python3 -c "import json; print(json.dumps('$METRIC_UNIT'))"),
-    'direction': '$DIRECTION',
-    'segment': $SEGMENT
+    "type": "config",
+    "name": $(
+        python3 -c "import json; print(json.dumps('$NAME'))"
+    ),
+    "metric_name": $(
+        python3 -c "import json; print(json.dumps('$METRIC_NAME'))"
+    ),
+    "metric_unit": $(
+        python3 -c "import json; print(json.dumps('$METRIC_UNIT'))"
+    ),
+    "direction": "$DIRECTION",
+    "segment": $SEGMENT,
+    "mode": "$MODE",
+    "objective": {
+        "primaryMetric": "$METRIC_NAME",
+        "direction": "$DIRECTION",
+    },
 }
 if $MAX_EXPERIMENTS > 0:
-    config['max_experiments'] = $MAX_EXPERIMENTS
+    config["budget"] = {"maxIterations": $MAX_EXPERIMENTS}
+for section in ("health", "recovery", "budget", "evaluator", "guardrails"):
+    if isinstance(file_cfg.get(section), dict) and section not in config:
+        config[section] = file_cfg[section]
 print(json.dumps(config))
-")
+PYCFG
 
-echo "$CONFIG_LINE" >> "$JSONL_PATH"
-
-# --- Initialize runtime state ---
 init_state "$WORKDIR"
 
-# --- Output summary ---
-python3 -c "
+python3 - <<PYOUT
 import json
+
 result = {
-    'status': 'initialized',
-    'name': '$NAME',
-    'metric_name': '$METRIC_NAME',
-    'metric_unit': '$METRIC_UNIT',
-    'direction': '$DIRECTION',
-    'segment': $SEGMENT,
-    'reinit': $( [[ "$REINIT" == "true" ]] && echo "True" || echo "False" ),
-    'jsonl_path': '$JSONL_PATH',
-    'max_experiments': $MAX_EXPERIMENTS if $MAX_EXPERIMENTS > 0 else None
+    "status": "initialized",
+    "name": "$NAME",
+    "metric_name": "$METRIC_NAME",
+    "metric_unit": "$METRIC_UNIT",
+    "direction": "$DIRECTION",
+    "segment": $SEGMENT,
+    "reinit": $([[ "$REINIT" == "true" ]] && echo "True" || echo "False"),
+    "jsonl_path": "$JSONL_PATH",
+    "max_experiments": $MAX_EXPERIMENTS if $MAX_EXPERIMENTS > 0 else None,
+    "mode": "$MODE",
 }
 print(json.dumps(result, indent=2))
-"
+PYOUT
