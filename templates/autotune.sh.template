@@ -9,8 +9,17 @@
 # - Keep it fast: skip unnecessary work
 # - For noisy benchmarks: run multiple iterations, report the median
 # - Additional metrics: output METRIC <name>=<value> for each
+# - POSIX only: no grep -P (macOS lacks Perl regex). Use sed/awk/python3.
 
 set -e
+
+# --- Environment setup ---
+# Activate project venv if present
+if [[ -d .venv/bin ]]; then
+  export PATH="$(pwd)/.venv/bin:$PATH"
+elif [[ -d venv/bin ]]; then
+  export PATH="$(pwd)/venv/bin:$PATH"
+fi
 
 # --- Pre-checks (fast-fail before expensive work) ---
 # Example: verify build inputs exist

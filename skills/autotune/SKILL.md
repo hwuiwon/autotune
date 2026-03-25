@@ -81,6 +81,8 @@ Write the benchmark script. It MUST:
 - Exit 0 on success, non-zero on failure
 - Be as fast as possible (skip unnecessary work)
 - For noisy benchmarks, run multiple iterations and report the median
+- Use POSIX-compatible commands only — no `grep -P` (macOS lacks Perl regex). Use `sed`, `awk`, or `python3 -c` for extraction instead
+- Activate the project's virtualenv if one exists (`.venv/bin` or `venv/bin`) before running Python commands
 
 Example for test speed:
 ```bash

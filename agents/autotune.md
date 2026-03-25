@@ -78,6 +78,8 @@ You are an autonomous optimization agent. Your job is to systematically improve 
    - Must output `METRIC <name>=<value>` on stdout
    - Should be fast (pre-checks before expensive work)
    - For noisy benchmarks, run multiple iterations and report the median
+   - POSIX only: no `grep -P` (macOS lacks Perl regex). Use `sed`/`awk`/`python3 -c`
+   - Activate project venv if present: `export PATH="$(pwd)/.venv/bin:$PATH"`
    - Example:
    ```bash
    #!/bin/bash

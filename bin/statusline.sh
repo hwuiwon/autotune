@@ -1,10 +1,24 @@
 #!/usr/bin/env bash
 # bin/statusline.sh — Autotune status line for Claude Code
 # Reads session JSON from stdin + autotune state files to display progress.
+#
+# Can be used standalone or chained with an existing statusline:
+#   Standalone: "bash ${CLAUDE_PLUGIN_ROOT}/bin/statusline.sh"
+#   Chained:    "bash ${CLAUDE_PLUGIN_ROOT}/bin/statusline.sh --chain 'node ~/.claude/hud/omc-hud.mjs'"
+#
 # Configure in settings.json:
-#   "statusLine": { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/bin/statusline.sh" }
+#   "statusLine": { "type": "command", "command": "bash .../bin/statusline.sh" }
 
 set -euo pipefail
+
+# Parse args
+CHAIN_CMD=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --chain) CHAIN_CMD="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
 
 # Read Claude Code session data from stdin
 SESSION_JSON=$(cat)
@@ -39,17 +53,21 @@ find_state_dir() {
 
 STATE_DIR=$(find_state_dir)
 
+# If no autotune session, delegate to chained command or show minimal info
 if [[ -z "$STATE_DIR" || ! -f "$STATE_DIR/.autotune.state" ]]; then
-  # No autotune session — show minimal info
-  printf "\033[90m⏱ %sm · $%s · ctx %s%%\033[0m" "$DURATION_MIN" "$COST" "$CONTEXT_PCT"
+  if [[ -n "$CHAIN_CMD" ]]; then
+    echo "$SESSION_JSON" | eval "$CHAIN_CMD"
+  else
+    printf "\033[90m⏱ %sm · $%s · ctx %s%%\033[0m" "$DURATION_MIN" "$COST" "$CONTEXT_PCT"
+  fi
   exit 0
 fi
 
 # Read autotune state
 STATE=$(cat "$STATE_DIR/.autotune.state" 2>/dev/null || echo '{}')
 
-# Parse state fields
-python3 - "$STATE" "$DURATION_MIN" "$COST" "$CONTEXT_PCT" <<'PYLINE'
+# Build autotune status line
+AUTOTUNE_LINE=$(python3 - "$STATE" "$DURATION_MIN" "$COST" "$CONTEXT_PCT" <<'PYLINE'
 import json
 import sys
 
@@ -108,3 +126,10 @@ parts.append(f"{DIM}{duration}m · ${cost} · ctx {ctx}%{RESET}")
 
 print(" · ".join(parts))
 PYLINE
+)
+
+# Output: autotune line first, then chained HUD if configured
+echo "$AUTOTUNE_LINE"
+if [[ -n "$CHAIN_CMD" ]]; then
+  echo "$SESSION_JSON" | eval "$CHAIN_CMD"
+fi

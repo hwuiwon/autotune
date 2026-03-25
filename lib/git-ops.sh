@@ -33,6 +33,11 @@ Autotune-Metric: ${metric_name}=${metric_value}${metric_unit:+ $metric_unit}"
   # Stage changes only within workdir
   git add -A -- "$workdir" 2>/dev/null || true
 
+  # Unstage autotune session files — these should never be committed
+  for f in "${PROTECTED_FILES[@]}"; do
+    git reset HEAD -- "$workdir/$f" 2>/dev/null || true
+  done
+
   # Check if there's anything to commit
   if git diff --cached --quiet 2>/dev/null; then
     echo '{"ok":false,"reason":"unchanged"}'
