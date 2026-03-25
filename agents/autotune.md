@@ -135,7 +135,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/bin/run-experiment.sh \
   [--timeout 600] \
   [--checks-timeout 300]
 ```
-Returns JSON with: `exit_code`, `duration_seconds`, `passed`, `crashed`, `timed_out`, `parsed_metrics`, `parsed_primary`, `checks_pass`, `tail_output`
+Returns JSON with: `exit`, `dur`, `passed`, `crashed`, `timeout`, `metrics`, `primary`, `pname`, `checks`, `output`
 
 ### Log Experiment
 ```bash
@@ -174,8 +174,8 @@ REPEAT WHILE HEALTHY OR HEALING:
      - Crashed/timed out → log with --status crash
      - Checks failed → log with --status checks_failed
   5. Read the health decision from the log output
-     - If `next_mode=repair` or `health_state=healing`, switch from broad optimization to diagnosis/recovery
-     - If `health_state=paused`, stop and report the blocker
+     - If `mode=repair` or `health=healing`, switch from broad optimization to diagnosis/recovery
+     - If `health=paused`, stop and report the blocker
   6. Update autotune.md periodically (every 3-5 experiments)
   7. GOTO 1
 ```

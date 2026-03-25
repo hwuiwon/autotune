@@ -35,7 +35,7 @@ Autotune-Metric: ${metric_name}=${metric_value}${metric_unit:+ $metric_unit}"
 
   # Check if there's anything to commit
   if git diff --cached --quiet 2>/dev/null; then
-    echo '{"committed": false, "reason": "no changes to commit"}'
+    echo '{"ok":false,"reason":"unchanged"}'
     return 0
   fi
 
@@ -43,9 +43,9 @@ Autotune-Metric: ${metric_name}=${metric_value}${metric_unit:+ $metric_unit}"
   local commit_hash
   if git commit -m "$full_message" --quiet 2>/dev/null; then
     commit_hash=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-    echo "{\"committed\": true, \"commit\": \"$commit_hash\"}"
+    echo "{\"ok\":true,\"commit\":\"$commit_hash\"}"
   else
-    echo '{"committed": false, "reason": "git commit failed"}'
+    echo '{"ok":false,"reason":"commit_failed"}'
     return 1
   fi
 }
@@ -95,5 +95,5 @@ ar_git_revert() {
     rm -rf "$tmpdir"
   fi
 
-  echo '{"reverted": true}'
+  echo '{"ok":true}'
 }

@@ -93,7 +93,7 @@ best = None
 if kept_results:
     best = min(kept_results, key=lambda r: r["metric"]) if direction == "lower" else max(kept_results, key=lambda r: r["metric"])
 
-health = state.get("health_state", "running")
+health = state.get("health", "running")
 health_color = {
     "improving": GREEN,
     "running": CYAN,
@@ -108,9 +108,9 @@ print()
 print(f"{BOLD}╔══ Autotune Dashboard ══╗{RESET}")
 print(f"{BOLD}║{RESET} {CYAN}{name}{RESET}")
 print(f"{BOLD}║{RESET} {metric_name} ({direction} is better) {DIM}unit: {metric_unit}{RESET}")
-print(f"{BOLD}║{RESET} mode={state.get('operating_mode', 'optimize')} health={health_color}{health}{RESET}")
-if state.get("failure_class"):
-    print(f"{BOLD}║{RESET} failure={state.get('failure_class')} recovery={state.get('last_recovery_action') or 'none'}")
+print(f"{BOLD}║{RESET} mode={state.get('mode', 'optimize')} health={health_color}{health}{RESET}")
+if state.get("failure"):
+    print(f"{BOLD}║{RESET} failure={state.get('failure')} recovery={state.get('recovery') or 'none'}")
 if len(configs) > 1:
     print(f"{BOLD}║{RESET} Segment {segment} of {len(configs)}")
 print(f"{BOLD}╚════════════════════════════╝{RESET}")
@@ -127,9 +127,9 @@ print("  " + " │ ".join(status_parts))
 print(
     "  Streaks: keep={keep} │ no-improve={no_improve} │ crash={crash} │ healing={healing}".format(
         keep=state.get("keep_streak", 0),
-        no_improve=state.get("consecutive_no_improvement", 0),
+        no_improve=state.get("no_improve", 0),
         crash=state.get("crash_streak", 0),
-        healing=state.get("healing_attempts", 0),
+        healing=state.get("heals", 0),
     )
 )
 
@@ -142,7 +142,7 @@ if best and baseline:
     color = GREEN if (direction == "lower" and delta < 0) or (direction == "higher" and delta > 0) else RED
     print(f"  Best:     {color}{BOLD}{best['metric']}{RESET} {metric_unit} ({sign}{delta_pct:.1f}%) {DIM}[{best.get('commit', '?')[:7]}]{RESET}")
 
-reason = state.get("last_decision_reason")
+reason = state.get("reason")
 if reason:
     print(f"  Reason:   {reason}")
 print()

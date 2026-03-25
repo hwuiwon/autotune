@@ -47,8 +47,8 @@ cmd_stop() {
   local workdir
   workdir=$(resolve_workdir ".")
   if is_autotune_active "$workdir"; then
-    update_state_field "$workdir" "autotune_mode" "false"
-    update_state_field "$workdir" "health_state" '"paused"'
+    update_state_field "$workdir" "active" "false"
+    update_state_field "$workdir" "health" '"paused"'
     echo "Autotune mode disabled. Session data preserved."
     echo "Resume with: autotune start"
   else
@@ -96,7 +96,7 @@ cmd_status() {
 import json
 import os
 
-print(json.loads(os.environ["STATE_JSON"]).get("autotune_mode", False))
+print(json.loads(os.environ["STATE_JSON"]).get("active", False))
 PY
 )
     local op_mode
@@ -104,7 +104,7 @@ PY
 import json
 import os
 
-print(json.loads(os.environ["STATE_JSON"]).get("operating_mode", "optimize"))
+print(json.loads(os.environ["STATE_JSON"]).get("mode", "optimize"))
 PY
 )
     local health
@@ -112,7 +112,7 @@ PY
 import json
 import os
 
-print(json.loads(os.environ["STATE_JSON"]).get("health_state", "running"))
+print(json.loads(os.environ["STATE_JSON"]).get("health", "running"))
 PY
 )
     local failures
@@ -128,7 +128,7 @@ PY
 import json
 import os
 
-print(json.loads(os.environ["STATE_JSON"]).get("consecutive_no_improvement", 0))
+print(json.loads(os.environ["STATE_JSON"]).get("no_improve", 0))
 PY
 )
     echo "Mode:       $([ "$mode" = "True" ] && echo "ACTIVE" || echo "inactive")"
@@ -183,17 +183,17 @@ import json
 import sys
 
 payload = json.load(sys.stdin)
-print(f"Health:    {payload.get('health_state')}")
-print(f"Mode:      {payload.get('operating_mode')}")
-print(f"Failure:   {payload.get('failure_class') or 'none'}")
+print(f"Health:    {payload.get('health')}")
+print(f"Mode:      {payload.get('mode')}")
+print(f"Failure:   {payload.get('failure') or 'none'}")
 print(f"Action:    {payload.get('suggested_next_action')}")
-print(f"Reason:    {payload.get('last_decision_reason') or 'n/a'}")
+print(f"Reason:    {payload.get('reason') or 'n/a'}")
 print(f"Baseline:  {payload.get('baseline')}")
-print(f"Best:      {payload.get('best_kept_metric')}")
+print(f"Best:      {payload.get('best')}")
 print(f"Last:      {payload.get('last_metric')} ({payload.get('last_status')})")
 print(
     f"Streaks:   crash={payload.get('crash_streak')} "
-    f"no_improve={payload.get('no_improvement_streak')} "
+    f"no_improve={payload.get('no_improve')} "
     f"keep={payload.get('keep_streak')}"
 )
 PY
@@ -203,7 +203,7 @@ cmd_repair() {
   local workdir
   workdir=$(resolve_workdir ".")
   local patch
-  patch='{"autotune_mode": true, "operating_mode": "repair", "health_state": "healing", "last_recovery_action": "manual_repair", "last_decision_reason": "operator requested repair mode"}'
+  patch='{"active": true, "mode": "repair", "health": "healing", "recovery": "manual_repair", "reason": "operator requested repair mode"}'
   set_state_fields "$workdir" "$patch"
   echo "Autotune set to repair mode. Resume with: claude --agent autotune"
 }

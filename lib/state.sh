@@ -351,14 +351,14 @@ for result in results:
         crash_streak = 0
 
 summary = {
-    "total_results": len(results),
+    "total": len(results),
     "baseline": baseline,
-    "best_kept_metric": best_kept,
+    "best": best_kept,
     "last_status": last_status,
     "last_metric": last_metric,
     "last_commit": last_commit,
-    "last_description": last_description,
-    "no_improvement_streak": no_improvement_streak,
+    "desc": last_description,
+    "no_improve": no_improvement_streak,
     "crash_streak": crash_streak,
     "keep_streak": keep_streak,
 }
@@ -443,24 +443,7 @@ init_state() {
   local mode
   mode=$(read_mode "$workdir")
   cat > "$state_path" <<STATEEOF
-{
-  "autotune_mode": true,
-  "operating_mode": "${mode}",
-  "health_state": "running",
-  "failure_class": null,
-  "last_decision_reason": null,
-  "last_recovery_action": null,
-  "healing_attempts": 0,
-  "consecutive_no_improvement": 0,
-  "consecutive_failures": 0,
-  "crash_streak": 0,
-  "keep_streak": 0,
-  "experiments_this_session": 0,
-  "resume_count": 0,
-  "last_resume_time": 0,
-  "last_experiment_at": null,
-  "last_meaningful_progress_at": null
-}
+{"active":true,"mode":"${mode}","health":"running","failure":null,"reason":null,"recovery":null,"heals":0,"no_improve":0,"failures":0,"crash_streak":0,"keep_streak":0,"n_exp":0,"resume_count":0,"resume_at":0,"exp_at":null,"progress_at":null}
 STATEEOF
 }
 
@@ -473,7 +456,7 @@ is_autotune_active() {
 import json
 import os
 
-print(json.loads(os.environ["STATE_JSON"]).get("autotune_mode", False))
+print(json.loads(os.environ["STATE_JSON"]).get("active", False))
 PYACTIVE
 )
   [[ "$mode" == "True" || "$mode" == "true" ]]

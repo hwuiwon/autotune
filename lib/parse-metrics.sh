@@ -59,7 +59,7 @@ elif not primary_name and metrics:
 result = {
     'metrics': metrics,
     'primary': primary_value,
-    'primary_name': primary_name if primary_name else (next(iter(metrics.keys())) if metrics else None)
+    'pname': primary_name if primary_name else (next(iter(metrics.keys())) if metrics else None)
 }
 
 print(json.dumps(result))

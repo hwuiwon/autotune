@@ -22,12 +22,12 @@ while [[ $# -gt 0 ]]; do
     --command) COMMAND="$2"; shift 2 ;;
     --timeout) TIMEOUT="$2"; shift 2 ;;
     --checks-timeout) CHECKS_TIMEOUT="$2"; shift 2 ;;
-    *) echo "{\"error\": \"Unknown argument: $1\"}"; exit 1 ;;
+    *) echo "{\"error\": \"unknown_arg:$1\"}"; exit 1 ;;
   esac
 done
 
 if [[ -z "$COMMAND" ]]; then
-  echo '{"error": "Required: --command"}'
+  echo '{"error": "missing:--command"}'
   exit 1
 fi
 
@@ -42,7 +42,7 @@ if [[ -f "$JSONL_PATH" ]]; then
     SEGMENT=$(get_current_segment "$JSONL_PATH")
     COUNT=$(count_experiments "$JSONL_PATH" "$SEGMENT")
     if [[ "$COUNT" -ge "$MAX_EXP" ]]; then
-      echo "{\"error\": \"Max experiments ($MAX_EXP) reached. Use init-experiment.sh to start a new segment.\"}"
+      echo "{\"error\": \"max_exp:$MAX_EXP\"}"
       exit 1
     fi
   fi
@@ -53,7 +53,7 @@ if [[ -f "$WORKDIR/autotune.sh" ]]; then
   # Strip env var prefixes, wrappers like env/time/nice/nohup
   STRIPPED=$(echo "$COMMAND" | sed -E 's/^(env|time|nice|nohup|timeout [0-9]+)\s+//g; s/^[A-Z_]+=[^ ]+ //g')
   if ! echo "$STRIPPED" | grep -qE '(^|/|\./)autotune\.sh(\s|$)'; then
-    echo '{"error": "autotune.sh exists. You must run it instead of a custom command."}'
+    echo '{"error": "use_autotune_sh"}'
     exit 1
   fi
 fi
@@ -141,27 +141,26 @@ metrics_data = json.loads('''$METRICS_JSON''')
 tail_output = sys.stdin.read()
 
 result = {
-    'command': $(python3 -c "import json; print(json.dumps('$COMMAND'))"),
-    'exit_code': $EXIT_CODE,
-    'duration_seconds': $DURATION,
+    'exit': $EXIT_CODE,
+    'dur': $DURATION,
     'passed': $( [[ "$PASSED" == "true" ]] && echo "True" || echo "False" ),
     'crashed': $( [[ "$CRASHED" == "true" ]] && echo "True" || echo "False" ),
-    'timed_out': $( [[ "$TIMED_OUT" == "true" ]] && echo "True" || echo "False" ),
-    'parsed_metrics': metrics_data.get('metrics', {}),
-    'parsed_primary': metrics_data.get('primary'),
-    'primary_name': metrics_data.get('primary_name'),
-    'tail_output': tail_output.strip(),
+    'timeout': $( [[ "$TIMED_OUT" == "true" ]] && echo "True" || echo "False" ),
+    'metrics': metrics_data.get('metrics', {}),
+    'primary': metrics_data.get('primary'),
+    'pname': metrics_data.get('pname'),
+    'output': tail_output.strip(),
 }
 
 checks_pass = '$CHECKS_PASS'
 if checks_pass == 'null':
-    result['checks_pass'] = None
+    result['checks'] = None
 elif checks_pass == 'true':
-    result['checks_pass'] = True
+    result['checks'] = True
 else:
-    result['checks_pass'] = False
+    result['checks'] = False
 
-result['checks_output'] = $(python3 -c "import json; print(json.dumps('''$CHECKS_OUTPUT'''.strip()))")
+result['chk_out'] = $(python3 -c "import json; print(json.dumps('''$CHECKS_OUTPUT'''.strip()))")
 
-print(json.dumps(result, indent=2))
+print(json.dumps(result))
 " <<< "$TAIL_OUTPUT"

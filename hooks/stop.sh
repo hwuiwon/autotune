@@ -34,10 +34,10 @@ fi
 
 STATE=$(cat "$STATE_PATH")
 
-MODE=$(echo "$STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('autotune_mode', False))" 2>/dev/null || echo "False")
-EXPERIMENTS=$(echo "$STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('experiments_this_session', 0))" 2>/dev/null || echo "0")
+MODE=$(echo "$STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('active', False))" 2>/dev/null || echo "False")
+EXPERIMENTS=$(echo "$STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('n_exp', 0))" 2>/dev/null || echo "0")
 RESUME_COUNT=$(echo "$STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('resume_count', 0))" 2>/dev/null || echo "0")
-LAST_RESUME=$(echo "$STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('last_resume_time', 0))" 2>/dev/null || echo "0")
+LAST_RESUME=$(echo "$STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('resume_at', 0))" 2>/dev/null || echo "0")
 
 # Must be active with experiments run
 if [[ "$MODE" != "True" && "$MODE" != "true" ]]; then
@@ -68,8 +68,8 @@ python3 -c "
 import json
 state = json.load(open('$STATE_PATH'))
 state['resume_count'] = state.get('resume_count', 0) + 1
-state['last_resume_time'] = $NOW
-state['experiments_this_session'] = 0
+state['resume_at'] = $NOW
+state['n_exp'] = 0
 json.dump(state, open('$STATE_PATH', 'w'), indent=2)
 "
 

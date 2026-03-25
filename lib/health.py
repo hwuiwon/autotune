@@ -103,12 +103,12 @@ def choose_playbook(failure_class: str | None, playbooks: list[str], healing_att
 def advance(previous_summary: dict[str, Any], status: str, metric: float, direction: str, state: dict[str, Any], config: dict[str, Any], timestamp: str) -> dict[str, Any]:
     health_cfg = HealthConfig.from_mapping(config.get("health"))
     recovery_cfg = RecoveryConfig.from_mapping(config.get("recovery"))
-    mode = state.get("operating_mode") or config.get("mode") or "optimize"
-    prev_best = previous_summary.get("best_kept_metric")
-    prev_no_improvement = int(previous_summary.get("no_improvement_streak") or 0)
+    mode = state.get("mode") or config.get("mode") or "optimize"
+    prev_best = previous_summary.get("best")
+    prev_no_improvement = int(previous_summary.get("no_improve") or 0)
     prev_crash_streak = int(previous_summary.get("crash_streak") or 0)
     prev_keep_streak = int(previous_summary.get("keep_streak") or 0)
-    healing_attempts = int(state.get("healing_attempts") or 0)
+    healing_attempts = int(state.get("heals") or 0)
 
     improved_best = False
     best_kept = prev_best
@@ -131,12 +131,12 @@ def advance(previous_summary: dict[str, Any], status: str, metric: float, direct
         health_state = "improving" if improved_best else "running"
         next_mode = "optimize"
         healing_attempts = 0
-        decision_reason = "metric improved and guardrails held" if improved_best else "kept by policy without degradation"
+        decision_reason = "improved" if improved_best else "kept_no_degrade"
     elif status == "discard":
         no_improvement_streak = prev_no_improvement + 1
         crash_streak = 0
         keep_streak = 0
-        decision_reason = "metric did not improve enough to keep"
+        decision_reason = "no_improve"
         if no_improvement_streak >= health_cfg.max_no_improvement_runs:
             failure_class = "plateau"
             health_state = "plateaued"
@@ -148,14 +148,14 @@ def advance(previous_summary: dict[str, Any], status: str, metric: float, direct
         keep_streak = 0
         failure_class = "checks_failed"
         health_state = "crashing"
-        decision_reason = "correctness checks failed after benchmark success"
+        decision_reason = "checks_failed"
     else:
         no_improvement_streak = prev_no_improvement + 1
         crash_streak = prev_crash_streak + 1
         keep_streak = 0
         failure_class = "benchmark_crash"
         health_state = "crashing"
-        decision_reason = "benchmark command crashed or timed out"
+        decision_reason = "crash"
 
     should_heal = False
     if failure_class in {"benchmark_crash", "checks_failed"} and crash_streak >= health_cfg.max_crash_streak:
@@ -170,7 +170,7 @@ def advance(previous_summary: dict[str, Any], status: str, metric: float, direct
                 health_state = "paused"
                 recovery_action = "pause"
                 next_mode = "repair"
-                decision_reason = "recovery budget exhausted; pausing for operator intervention"
+                decision_reason = "recovery_exhausted"
         else:
             recovery_action = choose_playbook(
                 failure_class,
@@ -180,54 +180,54 @@ def advance(previous_summary: dict[str, Any], status: str, metric: float, direct
             health_state = "healing"
             next_mode = "repair"
             healing_attempts += 1
-            decision_reason = f"health threshold crossed; next recovery action is {recovery_action}"
+            decision_reason = f"heal:{recovery_action}"
 
     summary = {
-        "total_results": int(previous_summary.get("total_results") or 0) + 1,
+        "total": int(previous_summary.get("total") or 0) + 1,
         "baseline": previous_summary.get("baseline", metric),
-        "best_kept_metric": best_kept,
+        "best": best_kept,
         "last_status": status,
         "last_metric": metric,
-        "no_improvement_streak": no_improvement_streak,
+        "no_improve": no_improvement_streak,
         "crash_streak": crash_streak,
         "keep_streak": keep_streak,
-        "improved_best": improved_best,
+        "improved": improved_best,
     }
 
     state_patch = {
-        "operating_mode": next_mode,
-        "health_state": health_state,
-        "failure_class": failure_class,
-        "last_decision_reason": decision_reason,
-        "last_recovery_action": recovery_action,
-        "healing_attempts": healing_attempts,
-        "consecutive_no_improvement": no_improvement_streak,
-        "consecutive_failures": crash_streak,
+        "mode": next_mode,
+        "health": health_state,
+        "failure": failure_class,
+        "reason": decision_reason,
+        "recovery": recovery_action,
+        "heals": healing_attempts,
+        "no_improve": no_improvement_streak,
+        "failures": crash_streak,
         "crash_streak": crash_streak,
         "keep_streak": keep_streak,
-        "last_experiment_at": timestamp,
+        "exp_at": timestamp,
     }
     if improved_best:
-        state_patch["last_meaningful_progress_at"] = timestamp
+        state_patch["progress_at"] = timestamp
     if pause_loop:
-        state_patch["autotune_mode"] = False
+        state_patch["active"] = False
 
     return {
         "summary": summary,
-        "health_state": health_state,
-        "failure_class": failure_class,
-        "recovery_action": recovery_action,
-        "pause_loop": pause_loop,
-        "next_mode": next_mode,
-        "decision_reason": decision_reason,
-        "state_patch": state_patch,
+        "health": health_state,
+        "failure": failure_class,
+        "recovery": recovery_action,
+        "pause": pause_loop,
+        "mode": next_mode,
+        "reason": decision_reason,
+        "patch": state_patch,
     }
 
 
 def explain(summary: dict[str, Any], state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
-    health_state = state.get("health_state", "running")
-    failure_class = state.get("failure_class")
-    action = state.get("last_recovery_action")
+    health_state = state.get("health", "running")
+    failure_class = state.get("failure")
+    action = state.get("recovery")
     if health_state == "healing":
         suggested = action or "diagnose"
     elif health_state == "plateaued":
@@ -240,20 +240,20 @@ def explain(summary: dict[str, Any], state: dict[str, Any], config: dict[str, An
         suggested = "continue"
 
     return {
-        "operating_mode": state.get("operating_mode", config.get("mode", "optimize")),
-        "health_state": health_state,
-        "failure_class": failure_class,
-        "last_recovery_action": action,
-        "last_decision_reason": state.get("last_decision_reason"),
+        "mode": state.get("mode", config.get("mode", "optimize")),
+        "health": health_state,
+        "failure": failure_class,
+        "recovery": action,
+        "reason": state.get("reason"),
         "baseline": summary.get("baseline"),
-        "best_kept_metric": summary.get("best_kept_metric"),
+        "best": summary.get("best"),
         "last_metric": summary.get("last_metric"),
         "last_status": summary.get("last_status"),
-        "no_improvement_streak": state.get("consecutive_no_improvement", summary.get("no_improvement_streak", 0)),
+        "no_improve": state.get("no_improve", summary.get("no_improve", 0)),
         "crash_streak": state.get("crash_streak", summary.get("crash_streak", 0)),
         "keep_streak": state.get("keep_streak", summary.get("keep_streak", 0)),
-        "healing_attempts": state.get("healing_attempts", 0),
-        "suggested_next_action": suggested,
+        "heals": state.get("heals", 0),
+        "next": suggested,
     }
 
 

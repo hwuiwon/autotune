@@ -23,17 +23,17 @@ while [[ $# -gt 0 ]]; do
     --metric) METRIC_NAME="$2"; shift 2 ;;
     --unit) METRIC_UNIT="$2"; shift 2 ;;
     --direction) DIRECTION="$2"; shift 2 ;;
-    *) echo "{\"error\": \"Unknown argument: $1\"}"; exit 1 ;;
+    *) echo "{\"error\": \"unknown_arg:$1\"}"; exit 1 ;;
   esac
 done
 
 if [[ -z "$NAME" || -z "$METRIC_NAME" || -z "$DIRECTION" ]]; then
-  echo '{"error": "Required: --name, --metric, --direction"}'
+  echo '{"error": "missing_args"}'
   exit 1
 fi
 
 if [[ "$DIRECTION" != "lower" && "$DIRECTION" != "higher" ]]; then
-  echo '{"error": "Direction must be \"lower\" or \"higher\""}'
+  echo '{"error": "bad_direction"}'
   exit 1
 fi
 
@@ -96,14 +96,13 @@ import json
 result = {
     "status": "initialized",
     "name": "$NAME",
-    "metric_name": "$METRIC_NAME",
-    "metric_unit": "$METRIC_UNIT",
+    "unit": "$METRIC_UNIT",
     "direction": "$DIRECTION",
     "segment": $SEGMENT,
     "reinit": $([[ "$REINIT" == "true" ]] && echo "True" || echo "False"),
-    "jsonl_path": "$JSONL_PATH",
-    "max_experiments": $MAX_EXPERIMENTS if $MAX_EXPERIMENTS > 0 else None,
+    "path": "$JSONL_PATH",
+    "max_exp": $MAX_EXPERIMENTS if $MAX_EXPERIMENTS > 0 else None,
     "mode": "$MODE",
 }
-print(json.dumps(result, indent=2))
+print(json.dumps(result))
 PYOUT

@@ -143,6 +143,21 @@ Write a config file when the user gave you enough context to set reasonable budg
 
 Bias toward conservative defaults. The goal is sustained useful work, not endless churn.
 
+### Status Line (optional)
+
+If the user doesn't already have a status line configured, suggest adding autotune's to `~/.claude/settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "bash ${CLAUDE_PLUGIN_ROOT}/bin/statusline.sh"
+  }
+}
+```
+
+This shows health state, experiment count, streaks, elapsed time, cost, and context usage at the bottom of the Claude Code window — updated after each assistant message.
+
 ## Step 6: Initialize and Run Baseline
 
 ```bash

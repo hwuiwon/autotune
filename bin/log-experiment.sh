@@ -25,24 +25,24 @@ while [[ $# -gt 0 ]]; do
     --metrics) SECONDARY_METRICS="$2"; shift 2 ;;
     --asi) ASI="$2"; shift 2 ;;
     --force) FORCE=true; shift ;;
-    *) echo "{\"error\": \"Unknown argument: $1\"}"; exit 1 ;;
+    *) echo "{\"error\":\"unknown_arg:$1\"}"; exit 1 ;;
   esac
 done
 
 if [[ -z "$METRIC" || -z "$STATUS" || -z "$DESCRIPTION" ]]; then
-  echo '{"error": "Required: --metric, --status, --description"}'
+  echo '{"error":"missing_args"}'
   exit 1
 fi
 
 if [[ "$STATUS" != "keep" && "$STATUS" != "discard" && "$STATUS" != "crash" && "$STATUS" != "checks_failed" ]]; then
-  echo '{"error": "Status must be: keep, discard, crash, or checks_failed"}'
+  echo '{"error":"bad_status"}'
   exit 1
 fi
 
 WORKDIR=$(resolve_workdir ".")
 JSONL_PATH=$(get_jsonl_path "$WORKDIR")
 if [[ ! -f "$JSONL_PATH" ]]; then
-  echo '{"error": "No session found. Run init-experiment.sh first."}'
+  echo '{"error":"no_session"}'
   exit 1
 fi
 
@@ -107,11 +107,11 @@ for line in open(jsonl_path):
 if not first_result and existing_names:
     missing = existing_names - set(new_metrics.keys())
     if missing and not force:
-        print(json.dumps({"error": f"Missing secondary metrics: {sorted(missing)}. Use --force to add new metrics."}))
+        print(json.dumps({"error": f"missing_metrics:{sorted(missing)}"}))
         raise SystemExit(0)
     new_names = set(new_metrics.keys()) - existing_names
     if new_names and not force:
-        print(json.dumps({"error": f"New secondary metrics: {sorted(new_names)}. Use --force to add."}))
+        print(json.dumps({"error": f"new_metrics:{sorted(new_names)}"}))
         raise SystemExit(0)
 
 print(json.dumps({"ok": True}))
@@ -170,42 +170,42 @@ FAILURE_CLASS=$(HEALTH_JSON="$HEALTH_JSON" python3 - <<'PY'
 import json
 import os
 
-print(json.loads(os.environ["HEALTH_JSON"]).get("failure_class") or "")
+print(json.loads(os.environ["HEALTH_JSON"]).get("failure") or "")
 PY
 )
 HEALTH_STATE=$(HEALTH_JSON="$HEALTH_JSON" python3 - <<'PY'
 import json
 import os
 
-print(json.loads(os.environ["HEALTH_JSON"]).get("health_state", "running"))
+print(json.loads(os.environ["HEALTH_JSON"]).get("health", "running"))
 PY
 )
 RECOVERY_ACTION=$(HEALTH_JSON="$HEALTH_JSON" python3 - <<'PY'
 import json
 import os
 
-print(json.loads(os.environ["HEALTH_JSON"]).get("recovery_action") or "")
+print(json.loads(os.environ["HEALTH_JSON"]).get("recovery") or "")
 PY
 )
 DECISION_REASON=$(HEALTH_JSON="$HEALTH_JSON" python3 - <<'PY'
 import json
 import os
 
-print(json.loads(os.environ["HEALTH_JSON"]).get("decision_reason") or "")
+print(json.loads(os.environ["HEALTH_JSON"]).get("reason") or "")
 PY
 )
 NEXT_MODE=$(HEALTH_JSON="$HEALTH_JSON" python3 - <<'PY'
 import json
 import os
 
-print(json.loads(os.environ["HEALTH_JSON"]).get("next_mode") or "optimize")
+print(json.loads(os.environ["HEALTH_JSON"]).get("mode") or "optimize")
 PY
 )
 STATE_PATCH=$(HEALTH_JSON="$HEALTH_JSON" python3 - <<'PY'
 import json
 import os
 
-print(json.dumps(json.loads(os.environ["HEALTH_JSON"]).get("state_patch", {})))
+print(json.dumps(json.loads(os.environ["HEALTH_JSON"]).get("patch", {})))
 PY
 )
 
@@ -253,12 +253,12 @@ result = {
     "segment": $SEGMENT,
     "metrics": json.loads(os.environ["SECONDARY_METRICS_ENV"]),
     "asi": json.loads(os.environ["ASI_ENV"]),
-    "failure_class": os.environ["FAILURE_CLASS_ENV"] or None,
-    "health_state": "$HEALTH_STATE",
-    "recovery_action": os.environ["RECOVERY_ACTION_ENV"] or None,
-    "decision_reason": os.environ["DECISION_REASON_ENV"],
-    "files_touched": json.loads(os.environ["FILES_TOUCHED_ENV"]),
-    "suggested_mode": "$NEXT_MODE",
+    "failure": os.environ["FAILURE_CLASS_ENV"] or None,
+    "health": "$HEALTH_STATE",
+    "recovery": os.environ["RECOVERY_ACTION_ENV"] or None,
+    "reason": os.environ["DECISION_REASON_ENV"],
+    "files": json.loads(os.environ["FILES_TOUCHED_ENV"]),
+    "mode": "$NEXT_MODE",
 }
 print(json.dumps(result))
 PYAPPEND
@@ -272,16 +272,16 @@ import json
 import os
 
 state = json.loads(os.environ["STATE_JSON"])
-print(state.get("experiments_this_session", 0) + 1)
+print(state.get("n_exp", 0) + 1)
 PY
 )
-update_state_field "$WORKDIR" "experiments_this_session" "$NEXT_EXPERIMENT_COUNT"
+update_state_field "$WORKDIR" "n_exp" "$NEXT_EXPERIMENT_COUNT"
 
 MAX_EXP=$(read_max_experiments "$WORKDIR")
 LIMIT_REACHED=false
 if [[ "$MAX_EXP" -gt 0 && "$INDEX" -ge "$MAX_EXP" ]]; then
   LIMIT_REACHED=true
-  set_state_fields "$WORKDIR" '{"autotune_mode": false, "health_state": "completed", "last_decision_reason": "iteration budget reached"}'
+  set_state_fields "$WORKDIR" '{"active": false, "health": "completed", "reason": "iteration budget reached"}'
 fi
 
 BASELINE=$(get_baseline "$JSONL_PATH" "$SEGMENT")
@@ -308,21 +308,21 @@ summary = {
     "index": $INDEX,
     "commit": "$COMMIT",
     "metric": metric,
-    "metric_name": "$METRIC_NAME",
+    "name": "$METRIC_NAME",
     "baseline": baseline,
     "delta": delta,
-    "delta_pct": delta_pct,
-    "description": $(
+    "d_pct": delta_pct,
+    "desc": $(
         python3 -c "import json; print(json.dumps('$DESCRIPTION'))"
     ),
     "confidence": confidence,
     "git": json.loads(os.environ["GIT_RESULT_ENV"]) if os.environ["GIT_RESULT_ENV"].strip() else None,
-    "limit_reached": $([[ "$LIMIT_REACHED" == "true" ]] && echo "True" || echo "False"),
-    "health_state": "$HEALTH_STATE",
-    "failure_class": os.environ["FAILURE_CLASS_ENV"] or None,
-    "recovery_action": os.environ["RECOVERY_ACTION_ENV"] or None,
-    "decision_reason": os.environ["DECISION_REASON_ENV"],
-    "next_mode": "$NEXT_MODE",
+    "limit": $([[ "$LIMIT_REACHED" == "true" ]] && echo "True" || echo "False"),
+    "health": "$HEALTH_STATE",
+    "failure": os.environ["FAILURE_CLASS_ENV"] or None,
+    "recovery": os.environ["RECOVERY_ACTION_ENV"] or None,
+    "reason": os.environ["DECISION_REASON_ENV"],
+    "mode": "$NEXT_MODE",
 }
-print(json.dumps(summary, indent=2))
+print(json.dumps(summary))
 PYOUT
