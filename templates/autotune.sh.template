@@ -1,0 +1,34 @@
+#!/bin/bash
+# autotune.sh — Benchmark script for {{GOAL}}
+#
+# This script is run by the autotune agent on every experiment.
+# It MUST output: METRIC {{METRIC_NAME}}=<value>
+# Exit 0 on success, non-zero on failure.
+#
+# Tips:
+# - Keep it fast: skip unnecessary work
+# - For noisy benchmarks: run multiple iterations, report the median
+# - Additional metrics: output METRIC <name>=<value> for each
+
+set -e
+
+# --- Pre-checks (fast-fail before expensive work) ---
+# Example: verify build inputs exist
+# [[ -f src/main.rs ]] || { echo "Missing source"; exit 1; }
+
+# --- Build (if needed) ---
+# make -j$(nproc) 2>/dev/null
+
+# --- Run benchmark ---
+# Example: time a command
+start=$(python3 -c "import time; print(time.time())")
+
+# {{BENCHMARK_COMMAND}}
+
+end=$(python3 -c "import time; print(time.time())")
+elapsed=$(python3 -c "print(round(($end - $start) * 1000, 1))")
+
+echo "METRIC {{METRIC_NAME}}=$elapsed"
+
+# --- Secondary metrics (optional) ---
+# echo "METRIC memory_mb=$(ps -o rss= -p $$ | awk '{print $1/1024}')"

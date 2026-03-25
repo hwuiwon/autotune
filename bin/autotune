@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# bin/autotune — Main CLI entry point for autotune
+#
+# Usage:
+#   autotune start [goal]     Launch autotune agent
+#   autotune stop             Turn off autotune mode
+#   autotune clear            Delete session data and reset
+#   autotune dashboard        Show experiment dashboard
+#   autotune status           Show current state
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+AUTOTUNE_HOME="${CLAUDE_PLUGIN_ROOT:-${AUTOTUNE_HOME:-$(dirname "$SCRIPT_DIR")}}"
+source "$AUTOTUNE_HOME/lib/state.sh"
+
+VERSION="0.1.0"
+
+usage() {
+  cat <<EOF
+autotune v${VERSION} — Autonomous optimization loops for Claude Code
+
+Usage: autotune <command> [options]
+
+Commands:
+  start [goal]          Launch the autotune agent in Claude Code
+  stop                  Turn off autotune mode (preserves log)
+  clear                 Delete autotune.jsonl and reset state
+  dashboard [--watch]   Show experiment dashboard (--watch for live, --full for all)
+  status                Show current autotune state
+  version               Show version
+
+Examples:
+  autotune start "optimize test speed"
+  autotune dashboard --watch
+  autotune stop
+EOF
+}
+
+cmd_start() {
+  local goal="${1:-}"
+  local workdir
+  workdir=$(resolve_workdir ".")
+
+  echo "Starting autotune agent..."
+
+  if [[ -n "$goal" ]]; then
+    claude --agent autotune -p "Set up autotune for: $goal"
+  else
+    claude --agent autotune
+  fi
+}
+
+cmd_stop() {
+  local workdir
+  workdir=$(resolve_workdir ".")
+
+  if is_autotune_active "$workdir"; then
+    update_state_field "$workdir" "autotune_mode" "false"
+    echo "Autotune mode disabled. Session data preserved."
+    echo "Resume with: autotune start"
+  else
+    echo "Autotune is not active."
+  fi
+}
+
+cmd_clear() {
+  local workdir
+  workdir=$(resolve_workdir ".")
+  local jsonl_path
+  jsonl_path=$(get_jsonl_path "$workdir")
+  local state_path
+  state_path=$(get_state_path "$workdir")
+
+  echo -n "This will delete autotune.jsonl and .autotune.state. Continue? [y/N] "
+  read -r confirm
+  if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+    echo "Cancelled."
+    return
+  fi
+
+  rm -f "$jsonl_path" "$state_path"
+  echo "Session data cleared."
+}
+
+cmd_dashboard() {
+  bash "$AUTOTUNE_HOME/bin/dashboard.sh" "$@"
+}
+
+cmd_status() {
+  local workdir
+  workdir=$(resolve_workdir ".")
+  local jsonl_path
+  jsonl_path=$(get_jsonl_path "$workdir")
+  local state_path
+  state_path=$(get_state_path "$workdir")
+
+  echo "autotune v${VERSION}"
+  echo ""
+
+  if [[ -f "$state_path" ]]; then
+    local state
+    state=$(cat "$state_path")
+    local mode
+    mode=$(echo "$state" | python3 -c "import json,sys; print(json.load(sys.stdin).get('autotune_mode', False))" 2>/dev/null)
+    local exp_count
+    exp_count=$(echo "$state" | python3 -c "import json,sys; print(json.load(sys.stdin).get('experiments_this_session', 0))" 2>/dev/null)
+    local resumes
+    resumes=$(echo "$state" | python3 -c "import json,sys; print(json.load(sys.stdin).get('resume_count', 0))" 2>/dev/null)
+
+    echo "Mode:       $([ "$mode" = "True" ] && echo "ACTIVE" || echo "inactive")"
+    echo "Experiments: $exp_count (this session)"
+    echo "Resumes:     $resumes"
+  else
+    echo "Mode:       not initialized"
+  fi
+
+  echo ""
+
+  if [[ -f "$jsonl_path" ]]; then
+    local segment
+    segment=$(get_current_segment "$jsonl_path")
+    local total
+    total=$(count_experiments "$jsonl_path" "$segment")
+    echo "JSONL:      $jsonl_path"
+    echo "Segment:    $segment"
+    echo "Total runs: $total (current segment)"
+  else
+    echo "JSONL:      (no session file)"
+  fi
+
+  if [[ -f "$workdir/autotune.md" ]]; then
+    echo "Session:    autotune.md exists"
+  fi
+  if [[ -f "$workdir/autotune.sh" ]]; then
+    echo "Benchmark:  autotune.sh exists"
+  fi
+  if [[ -f "$workdir/autotune.checks.sh" ]]; then
+    echo "Checks:     autotune.checks.sh exists"
+  fi
+}
+
+# --- Main ---
+COMMAND="${1:-}"
+shift || true
+
+case "$COMMAND" in
+  start) cmd_start "$@" ;;
+  stop) cmd_stop ;;
+  clear) cmd_clear ;;
+  dashboard) cmd_dashboard "$@" ;;
+  status) cmd_status ;;
+  version|--version|-v) echo "autotune v${VERSION}" ;;
+  help|--help|-h|"") usage ;;
+  *) echo "Unknown command: $COMMAND"; usage; exit 1 ;;
+esac

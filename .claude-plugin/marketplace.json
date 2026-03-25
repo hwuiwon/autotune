@@ -1,0 +1,23 @@
+{
+  "name": "autotune",
+  "owner": {
+    "name": "hwuiwon"
+  },
+  "metadata": {
+    "description": "Autonomous optimization loops for Claude Code"
+  },
+  "plugins": [
+    {
+      "name": "autotune",
+      "description": "Autonomous optimization loops — edit, benchmark, keep improvements, revert regressions, repeat forever",
+      "version": "0.1.0",
+      "author": {
+        "name": "hwuiwon"
+      },
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://github.com/hwuiwon/autotune",
+      "tags": ["autotune", "optimization", "benchmarking", "autonomous"]
+    }
+  ]
+}

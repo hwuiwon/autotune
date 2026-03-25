@@ -1,0 +1,13 @@
+{
+  "name": "autotune",
+  "version": "0.1.0",
+  "description": "Autonomous optimization loops — edit, benchmark, keep improvements, revert regressions, repeat forever",
+  "author": {
+    "name": "hwuiwon",
+    "url": "https://github.com/hwuiwon"
+  },
+  "homepage": "https://github.com/hwuiwon/autotune",
+  "repository": "https://github.com/hwuiwon/autotune",
+  "license": "MIT",
+  "keywords": ["autotune", "optimization", "benchmarking", "autonomous"]
+}

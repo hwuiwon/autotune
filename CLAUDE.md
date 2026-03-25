@@ -1,0 +1,29 @@
+# autotune
+
+Autonomous optimization loops for Claude Code.
+
+## Project Structure
+
+- `bin/` — CLI and helper scripts (bash). Each script outputs structured JSON.
+- `lib/` — Shared libraries: `state.sh` (state management), `parse-metrics.sh` (METRIC parser), `git-ops.sh` (commit/revert), `confidence.py` (MAD scoring)
+- `agents/` — Claude Code plugin subagents. `agents/autotune.md` is the canonical agent definition.
+- `skills/` — Claude Code plugin skills. `skills/autotune/SKILL.md` is the canonical setup skill.
+- `hooks/` — Claude Code plugin hooks. `hooks/hooks.json` wires `stop.sh` and `pre-tool-use.sh`.
+- `.claude-plugin/` — Claude Code marketplace and plugin manifests.
+- `templates/` — Templates for autotune.md and autotune.sh
+
+## Conventions
+
+- All bash scripts use `set -euo pipefail` and source `$AUTOTUNE_HOME/lib/state.sh`
+- Plugin-facing docs and examples should prefer `${CLAUDE_PLUGIN_ROOT}` for runtime paths.
+- Helper scripts (`bin/`) output JSON to stdout for the agent to parse
+- Python is only used for JSON/math operations (confidence scoring, metric parsing)
+- No external dependencies beyond Python 3 stdlib, git, and bash
+
+## Testing
+
+Validate the plugin:
+```bash
+claude plugin validate .
+cd /tmp && claude --plugin-dir /path/to/autotune agents
+```

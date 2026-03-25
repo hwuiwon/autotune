@@ -1,0 +1,25 @@
+{
+  "name": "autotune",
+  "version": "0.1.0",
+  "description": "Autonomous optimization loops for Claude Code — edit, benchmark, keep improvements, revert regressions, repeat forever",
+  "author": "hwuiwon",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hwuiwon/autotune.git"
+  },
+  "bin": {
+    "autotune": "./bin/autotune"
+  },
+  "keywords": [
+    "claude-code",
+    "autotune",
+    "optimization",
+    "benchmarking",
+    "autonomous",
+    "ai-agent"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

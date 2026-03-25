@@ -1,0 +1,22 @@
+# Autotune: {{GOAL}}
+
+## Objective
+{{OBJECTIVE}}
+
+## Setup
+- **Command**: `./autotune.sh`
+- **Metric**: {{METRIC_NAME}} ({{METRIC_UNIT}}, {{DIRECTION}} is better)
+- **Files in scope**: {{FILES_IN_SCOPE}}
+- **Constraints**: {{CONSTRAINTS}}
+
+## What's Been Tried
+(nothing yet)
+
+## Dead Ends
+(none yet)
+
+## Key Wins
+(none yet)
+
+## Current Best
+Baseline: pending first run
